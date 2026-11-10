@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BatchStatus {
+  PENDING_INGESTION
+  PARSING
+  VALIDATED
+  FAILED
+  COMPLETED
+}
+
+enum IdempotencyStatus {
+  STARTED
+  COMPLETED
+  FAILED
+}
+
+/// LaboratoryContext aggregate root. `version` is the OCC token:
+/// every mutation is `UPDATE ... WHERE id = ? AND version = ?` with `version = version + 1`.
+model SampleBatch {
+  id          String      @id @default(uuid()) @db.Uuid
+  batchNumber String      @unique
+  status      BatchStatus @default(PENDING_INGESTION)
+  metadata    Json        @default("{}")
+  version     Int         @default(1)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  samples     Sample[]
+
+  @@index([status])
+}
+
+model Sample {
+  id         String      @id @default(uuid()) @db.Uuid
+  batchId    String      @db.Uuid
+  batch      SampleBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  sampleCode String      @unique
+  assayType  String
+  results    Json
+  version    Int         @default(1)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([batchId])
+}
+
+/// IngestionContext lease table. Key = sha256(bucket:key:eTag:sequencer).
+model IngestionIdempotency {
+  key          String            @id
+  status       IdempotencyStatus
+  responseData Json?
+  lockedUntil  DateTime
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([status, lockedUntil])
+}
+
+/// Per-object sequencer watermark. `s3Key` is stored as "<bucket>:<objectKey>"
+/// so identically named keys in different buckets never share a watermark.
+model S3IngestionLedger {
+  s3Key         String   @id
+  lastSequencer String
+  eTag          String
+  status        String
+  updatedAt     DateTime @updatedAt
+}

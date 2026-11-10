@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lims
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lims_dev_password}
+      POSTGRES_DB: lims
+    ports:
+      # Loopback only. 5432 (notes_postgres) and 5433 (inventory-postgres) are taken by other local
+      # containers, so default to 5434. Override with DB_HOST_PORT in .env; the app container itself
+      # reaches the db over the compose network and doesn't use this port.
+      - "127.0.0.1:${DB_HOST_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lims -d lims"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://lims:${POSTGRES_PASSWORD:-lims_dev_password}@db:5432/lims?schema=public
+
+volumes:
+  pgdata:
+
